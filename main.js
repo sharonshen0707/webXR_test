@@ -44,26 +44,38 @@ const arButton = ARButton.createButton(renderer, {
 document.body.appendChild(arButton);
 
 // ========================================
-// 5. 建立 Cube
+// 5. 建立「地面偵測點」
 // ========================================
-const geometry = new THREE.BoxGeometry(
-  0.2,
-  0.2,
-  0.2
-);
+//
+// 先不用 Cube
+// 用一個綠色圓圈表示「偵測到地面」
+//
 
-const material = new THREE.MeshBasicMaterial({
-  color: 0xff0000
-});
+const reticleGeometry =
+  new THREE.RingGeometry(
+    0.08,
+    0.12,
+    32
+  );
 
-const cube = new THREE.Mesh(
-  geometry,
-  material
-);
+const reticleMaterial =
+  new THREE.MeshBasicMaterial({
+    color: 0x00ff00
+  });
 
-cube.visible = false;
+const reticle =
+  new THREE.Mesh(
+    reticleGeometry,
+    reticleMaterial
+  );
 
-scene.add(cube);
+// 圓圈水平放置
+reticle.rotation.x = -Math.PI / 2;
+
+// 一開始隱藏
+reticle.visible = false;
+
+scene.add(reticle);
 
 // ========================================
 // 6. Hit Test 變數
@@ -71,9 +83,6 @@ scene.add(cube);
 
 let hitTestSource = null;
 let hitTestSourceRequested = false;
-
-// 是否已經放置 Cube
-let cubePlaced = false;
 
 // ========================================
 // 7. AR Session 開始
@@ -83,14 +92,14 @@ renderer.xr.addEventListener(
   'sessionstart',
   () => {
 
+    console.log('====================');
     console.log('AR Session 開始');
+    console.log('====================');
 
-    // 每次重新進入 AR 都重新設定
     hitTestSource = null;
     hitTestSourceRequested = false;
-    cubePlaced = false;
 
-    cube.visible = false;
+    reticle.visible = false;
   }
 );
 
@@ -107,8 +116,7 @@ renderer.xr.addEventListener(
     hitTestSource = null;
     hitTestSourceRequested = false;
 
-    cubePlaced = false;
-    cube.visible = false;
+    reticle.visible = false;
   }
 );
 
@@ -139,73 +147,79 @@ renderer.setAnimationLoop(
 
     if (!hitTestSourceRequested) {
 
+      console.log(
+        '正在建立 Hit Test Source...'
+      );
+
       session
         .requestReferenceSpace('viewer')
-        .then((referenceSpace) => {
+        .then(
+          (referenceSpace) => {
 
-          return session.requestHitTestSource({
-            space: referenceSpace
-          });
+            console.log(
+              'viewer reference space OK'
+            );
 
-        })
-        .then((source) => {
+            return session.requestHitTestSource({
+              space: referenceSpace
+            });
 
-          hitTestSource = source;
+          }
+        )
+        .then(
+          (source) => {
 
-          console.log(
-            'Hit Test Source 建立成功'
-          );
+            hitTestSource = source;
 
-        })
-        .catch((error) => {
+            console.log(
+              'Hit Test Source 建立成功'
+            );
 
-          console.error(
-            'Hit Test Source 建立失敗:',
-            error
-          );
+          }
+        )
+        .catch(
+          (error) => {
 
-        });
+            console.error(
+              'Hit Test 建立失敗:',
+              error
+            );
 
-      // AR 世界座標
-      session
-        .requestReferenceSpace('local')
-        .then((referenceSpace) => {
-
-          renderer.xr.setReferenceSpace(
-            referenceSpace
-          );
-
-        })
-        .catch((error) => {
-
-          console.error(
-            'Reference Space 建立失敗:',
-            error
-          );
-
-        });
+          }
+        );
 
       hitTestSourceRequested = true;
     }
 
     // ====================================
-    // Hit Test
+    // 執行 Hit Test
     // ====================================
 
-    if (
-      hitTestSource &&
-      !cubePlaced
-    ) {
+    if (hitTestSource) {
 
       const referenceSpace =
         renderer.xr.getReferenceSpace();
+
+      // 如果 reference space 還沒準備好
+      if (!referenceSpace) {
+
+        renderer.render(
+          scene,
+          camera
+        );
+
+        return;
+      }
 
       const hitTestResults =
         frame.getHitTestResults(
           hitTestSource
         );
 
+      // ==================================
       // 找到地面
+      // ==================================
+
       if (
         hitTestResults.length > 0
       ) {
@@ -223,15 +237,27 @@ renderer.setAnimationLoop(
           const position =
             pose.transform.position;
 
-          // Cube 顯示在偵測到的地面
-          cube.position.set(
+          // 綠色圓圈放到地面
+          reticle.position.set(
             position.x,
-            position.y + 0.1,
+            position.y,
             position.z
           );
 
-          cube.visible = true;
+          reticle.visible = true;
+
+          console.log(
+            '找到地面:',
+            position.x,
+            position.y,
+            position.z
+          );
         }
+
+      } else {
+
+        // 還沒有找到地面
+        reticle.visible = false;
       }
     }
 
@@ -247,58 +273,7 @@ renderer.setAnimationLoop(
 );
 
 // ========================================
-// 10. AR Select Event
-// ========================================
-//
-// WebXR AR 中，使用者點擊畫面通常會觸發
-// session 的 "select" event
-//
-
-renderer.xr.addEventListener(
-  'sessionstart',
-  () => {
-
-    const session =
-      renderer.xr.getSession();
-
-    session.addEventListener(
-      'select',
-      () => {
-
-        console.log(
-          '收到 AR Select 事件'
-        );
-
-        // 如果 Cube 已經放置
-        if (cubePlaced) {
-          return;
-        }
-
-        // 沒有找到地面
-        if (!hitTestSource) {
-
-          console.log(
-            '目前還沒有找到地面'
-          );
-
-          return;
-        }
-
-        // 鎖定 Cube
-        cubePlaced = true;
-
-        cube.visible = true;
-
-        console.log(
-          'Cube 已經固定在目前位置'
-        );
-      }
-    );
-  }
-);
-
-// ========================================
-// 11. 視窗大小改變
+// 10. Resize
 // ========================================
 
 window.addEventListener(
